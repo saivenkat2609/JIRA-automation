@@ -58,13 +58,14 @@ jobs:
               "messages": [
                 {
                   "role": "system",
-                  "content": "You generate clear release notes from code changes."
+                  "content": "You generate structured release notes from code changes. Always respond with valid JSON only, no markdown formatting."
                 },
                 {
                   "role": "user",
-                  "content": ("Create detailed release notes based ONLY on these code changes.\n\n" + $diff + "\n\nInclude:\n- WHY the change was needed\n- WHAT was implemented\n- HOW it affects behavior\n- Technical details\n- Files modified\n- Impact and testing notes.")
+                  "content": ("Analyze these code changes and generate release notes in JSON format with these exact fields:\n\n" + $diff + "\n\nRespond with ONLY a JSON object (no markdown, no code blocks) with these fields:\n{\n  \"heading\": \"Brief title for the release (5-10 words)\",\n  \"why\": \"Why was this change needed? What problem does it solve?\",\n  \"what\": \"What was implemented? Describe the solution and technical details.\",\n  \"how\": \"How can users access or use this feature? What are the steps?\",\n  \"impact\": \"What is the impact? How does this affect users, system, or behavior?\"\n}")
                 }
-              ]
+              ],
+              "response_format": { "type": "json_object" }
             }')
 
           RAW_RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
@@ -74,49 +75,102 @@ jobs:
 
           echo "RAW_RESPONSE = $RAW_RESPONSE"
 
-          RESPONSE=$(echo "$RAW_RESPONSE" | jq -r '.choices[0].message.content // "No content generated"')
+          RESPONSE=$(echo "$RAW_RESPONSE" | jq -r '.choices[0].message.content // "{}"')
 
-          echo "Final RESPONSE = $RESPONSE"
+          echo "Parsed JSON RESPONSE = $RESPONSE"
 
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$RESPONSE" >> $GITHUB_OUTPUT
+          # Extract individual fields from JSON response
+          HEADING=$(echo "$RESPONSE" | jq -r '.heading // "Release Update"')
+          WHY=$(echo "$RESPONSE" | jq -r '.why // "No information provided"')
+          WHAT=$(echo "$RESPONSE" | jq -r '.what // "No information provided"')
+          HOW=$(echo "$RESPONSE" | jq -r '.how // "No information provided"')
+          IMPACT=$(echo "$RESPONSE" | jq -r '.impact // "No information provided"')
+
+          # Save to outputs
+          echo "heading=$HEADING" >> $GITHUB_OUTPUT
+          echo "why<<EOF" >> $GITHUB_OUTPUT
+          echo "$WHY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "what<<EOF" >> $GITHUB_OUTPUT
+          echo "$WHAT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "how<<EOF" >> $GITHUB_OUTPUT
+          echo "$HOW" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "impact<<EOF" >> $GITHUB_OUTPUT
+          echo "$IMPACT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
 
-      - name: Update Jira Issue
+      - name: Update Jira Custom Fields
         env:
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           ISSUE_KEY: ${{ steps.issue.outputs.key }}
         run: |
-          # Use heredoc to safely capture notes without bash interpreting special characters
-          NOTES=$(cat << 'EOF'
-          ${{ steps.generate.outputs.notes }}
+          # Use heredoc to safely capture each field
+          HEADING=$(cat << 'EOF'
+          ${{ steps.generate.outputs.heading }}
           EOF
           )
 
-          # Build JIRA comment JSON using jq to properly escape special characters
+          WHY=$(cat << 'EOF'
+          ${{ steps.generate.outputs.why }}
+          EOF
+          )
+
+          WHAT=$(cat << 'EOF'
+          ${{ steps.generate.outputs.what }}
+          EOF
+          )
+
+          HOW=$(cat << 'EOF'
+          ${{ steps.generate.outputs.how }}
+          EOF
+          )
+
+          IMPACT=$(cat << 'EOF'
+          ${{ steps.generate.outputs.impact }}
+          EOF
+          )
+
+          # Build JIRA update payload using jq to properly escape special characters
           JIRA_PAYLOAD=$(jq -n \
-            --arg notes "$NOTES" \
+            --arg heading "$HEADING" \
+            --arg why "$WHY" \
+            --arg what "$WHAT" \
+            --arg how "$HOW" \
+            --arg impact "$IMPACT" \
             '{
-              "body": {
-                "type": "doc",
-                "version": 1,
-                "content": [{
-                  "type": "paragraph",
-                  "content": [{
-                    "type": "text",
-                    "text": $notes
-                  }]
-                }]
+              "fields": {
+                "customfield_10265": $heading,
+                "customfield_10358": $why,
+                "customfield_10359": $what,
+                "customfield_10361": $how,
+                "customfield_10362": $impact
               }
             }')
 
-          echo "Posting to JIRA issue $ISSUE_KEY"
+          echo "Updating JIRA issue $ISSUE_KEY with custom fields"
+          echo "Payload: $JIRA_PAYLOAD"
 
-          curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-            -X POST \
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+            -X PUT \
             -H "Content-Type: application/json" \
             --data "$JIRA_PAYLOAD" \
-            $JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment
+            $JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY)
+
+          HTTP_CODE=$(echo "$RESPONSE" | grep HTTP_CODE | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE/d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Successfully updated JIRA custom fields!"
+          else
+            echo "Failed to update JIRA. Status: $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
