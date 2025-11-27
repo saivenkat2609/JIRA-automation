@@ -20,13 +20,15 @@ jobs:
         run: |
           BRANCH="${{ steps.extract.outputs.branch }}"
 
-          # Regex to extract FIRST TWO WORDS: PROJECT + NUMBER
-          if [[ "$BRANCH" =~ ([A-Z]+-[0-9]+) ]]; then
-            ISSUE_KEY="${BASH_REMATCH[1]}"
+          # Regex to extract JIRA key (case-insensitive): PROJECT + NUMBER
+          if [[ "$BRANCH" =~ ([A-Za-z]+-[0-9]+) ]]; then
+            # Convert to uppercase for JIRA
+            ISSUE_KEY="${BASH_REMATCH[1]^^}"
             echo "key=$ISSUE_KEY" >> $GITHUB_OUTPUT
-            echo "Detected Issue Key: $ISSUE_KEY"
+            echo "Detected Issue Key: $ISSUE_KEY (from branch: $BRANCH)"
           else
             echo "Error: No Jira issue key found in branch name $BRANCH"
+            echo "Expected format: PROJECT-123 (e.g., AS-6, PROJ-456)"
             exit 1
           fi
 
