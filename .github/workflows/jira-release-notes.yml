@@ -50,22 +50,27 @@ jobs:
 
           echo "DIFF SIZE: ${#SAFE_DIFF} characters"
 
+          # Build JSON payload using jq to properly escape special characters
+          PAYLOAD=$(jq -n \
+            --arg diff "$SAFE_DIFF" \
+            '{
+              "model": "gpt-4o-mini",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You generate clear release notes from code changes."
+                },
+                {
+                  "role": "user",
+                  "content": ("Create detailed release notes based ONLY on these code changes.\n\n" + $diff + "\n\nInclude:\n- WHY the change was needed\n- WHAT was implemented\n- HOW it affects behavior\n- Technical details\n- Files modified\n- Impact and testing notes.")
+                }
+              ]
+            }')
+
           RAW_RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"model\": \"gpt-4o-mini\",
-              \"messages\": [
-                {
-                  \"role\": \"system\",
-                  \"content\": \"You generate clear release notes from code changes.\"
-                },
-                {
-                  \"role\": \"user\",
-                  \"content\": \"Create detailed release notes based ONLY on these code changes.\n\n$SAFE_DIFF\n\nInclude:\n- WHY the change was needed\n- WHAT was implemented\n- HOW it affects behavior\n- Technical details\n- Files modified\n- Impact and testing notes.\"
-                }
-              ]
-            }")
+            -d "$PAYLOAD")
 
           echo "RAW_RESPONSE = $RAW_RESPONSE"
 
