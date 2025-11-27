@@ -90,20 +90,29 @@ jobs:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           ISSUE_KEY: ${{ steps.issue.outputs.key }}
         run: |
-          curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-            -X POST \
-            -H "Content-Type: application/json" \
-            --data "{
-              \"body\": {
-                \"type\": \"doc\",
-                \"version\": 1,
-                \"content\": [{
-                  \"type\": \"paragraph\",
-                  \"content\": [{
-                    \"type\": \"text\",
-                    \"text\": \"${{ steps.generate.outputs.notes }}\"
+          NOTES="${{ steps.generate.outputs.notes }}"
+
+          # Build JIRA comment JSON using jq to properly escape special characters
+          JIRA_PAYLOAD=$(jq -n \
+            --arg notes "$NOTES" \
+            '{
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                  "type": "paragraph",
+                  "content": [{
+                    "type": "text",
+                    "text": $notes
                   }]
                 }]
               }
-            }" \
+            }')
+
+          echo "Posting to JIRA issue $ISSUE_KEY"
+
+          curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data "$JIRA_PAYLOAD" \
             $JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment
