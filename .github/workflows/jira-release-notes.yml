@@ -39,20 +39,34 @@ jobs:
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_BODY="${{ github.event.pull_request.body }}"
 
-          RESPONSE=$(curl https://api.openai.com/v1/chat/completions \
+          echo "PR_TITLE: $PR_TITLE"
+          echo "PR_BODY: $PR_BODY"
+
+          RAW_RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{
-              \"model\": \"gpt-4.1\",
+              \"model\": \"gpt-4o-mini\",
               \"messages\": [
                 {\"role\": \"system\", \"content\": \"You generate clear release notes.\"},
-                {\"role\": \"user\", \"content\": \"Create detailed release notes for Jira issue based on this PR title and description.\nTitle: $PR_TITLE\nDescription: $PR_BODY\nInclude: Why, What, How it looks, Technical changes.\"}
+                {\"role\": \"user\", \"content\": \"Create detailed release notes for Jira issue based on this PR.\nTitle: $PR_TITLE\nDescription: $PR_BODY\nInclude: Why, What, How it looks, Technical changes.\"}
               ]
-            }" | jq -r '.choices[0].message.content')
+            }")
+
+          echo "RAW_RESPONSE = $RAW_RESPONSE"
+
+          RESPONSE=$(echo "$RAW_RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [[ -z "$RESPONSE" ]]; then
+            RESPONSE="No PR description provided. Added initial automation."
+          fi
+
+          echo "Final RESPONSE = $RESPONSE"
 
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           echo "$RESPONSE" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
 
       - name: Update Jira Issue
         env:
