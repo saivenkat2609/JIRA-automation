@@ -135,7 +135,8 @@ jobs:
           EOF
           )
 
-          # Build JIRA update payload using jq with Atlassian Document Format (ADF)
+          # Build JIRA update payload using jq
+          # Note: customfield_10265 is plain text, others require ADF format
           JIRA_PAYLOAD=$(jq -n \
             --arg heading "$HEADING" \
             --arg why "$WHY" \
@@ -144,17 +145,7 @@ jobs:
             --arg impact "$IMPACT" \
             '{
               "fields": {
-                "customfield_10265": {
-                  "type": "doc",
-                  "version": 1,
-                  "content": [{
-                    "type": "paragraph",
-                    "content": [{
-                      "type": "text",
-                      "text": $heading
-                    }]
-                  }]
-                },
+                "customfield_10265": $heading,
                 "customfield_10358": {
                   "type": "doc",
                   "version": 1,
