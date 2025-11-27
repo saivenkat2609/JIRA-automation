@@ -1,0 +1,80 @@
+name: Update Jira Release Notes
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  update-release-notes:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract branch name
+        id: extract
+        run: |
+          echo "branch=${GITHUB_HEAD_REF}" >> $GITHUB_OUTPUT
+
+      - name: Extract Jira issue key from branch
+        id: issue
+        run: |
+          BRANCH="${{ steps.extract.outputs.branch }}"
+
+          # Regex to extract FIRST TWO WORDS: PROJECT + NUMBER
+          if [[ "$BRANCH" =~ ([A-Z]+-[0-9]+) ]]; then
+            ISSUE_KEY="${BASH_REMATCH[1]}"
+            echo "key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+            echo "Detected Issue Key: $ISSUE_KEY"
+          else
+            echo "Error: No Jira issue key found in branch name $BRANCH"
+            exit 1
+          fi
+
+
+      - name: Generate Release Notes using GPT
+        id: generate
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          RESPONSE=$(curl https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"gpt-4.1\",
+              \"messages\": [
+                {\"role\": \"system\", \"content\": \"You generate clear release notes.\"},
+                {\"role\": \"user\", \"content\": \"Create detailed release notes for Jira issue based on this PR title and description.\nTitle: $PR_TITLE\nDescription: $PR_BODY\nInclude: Why, What, How it looks, Technical changes.\"}
+              ]
+            }" | jq -r '.choices[0].message.content')
+
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESPONSE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update Jira Issue
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          ISSUE_KEY: ${{ steps.issue.outputs.key }}
+        run: |
+          curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data "{
+              \"body\": {
+                \"type\": \"doc\",
+                \"version\": 1,
+                \"content\": [{
+                  \"type\": \"paragraph\",
+                  \"content\": [{
+                    \"type\": \"text\",
+                    \"text\": \"${{ steps.generate.outputs.notes }}\"
+                  }]
+                }]
+              }
+            }" \
+            $JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment
