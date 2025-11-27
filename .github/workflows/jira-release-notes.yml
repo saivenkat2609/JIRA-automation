@@ -90,7 +90,11 @@ jobs:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           ISSUE_KEY: ${{ steps.issue.outputs.key }}
         run: |
-          NOTES="${{ steps.generate.outputs.notes }}"
+          # Use heredoc to safely capture notes without bash interpreting special characters
+          NOTES=$(cat << 'EOF'
+          ${{ steps.generate.outputs.notes }}
+          EOF
+          )
 
           # Build JIRA comment JSON using jq to properly escape special characters
           JIRA_PAYLOAD=$(jq -n \
