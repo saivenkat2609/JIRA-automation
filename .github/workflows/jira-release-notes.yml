@@ -135,7 +135,7 @@ jobs:
           EOF
           )
 
-          # Build JIRA update payload using jq to properly escape special characters
+          # Build JIRA update payload using jq with Atlassian Document Format (ADF)
           JIRA_PAYLOAD=$(jq -n \
             --arg heading "$HEADING" \
             --arg why "$WHY" \
@@ -144,11 +144,61 @@ jobs:
             --arg impact "$IMPACT" \
             '{
               "fields": {
-                "customfield_10265": $heading,
-                "customfield_10358": $why,
-                "customfield_10359": $what,
-                "customfield_10361": $how,
-                "customfield_10362": $impact
+                "customfield_10265": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": $heading
+                    }]
+                  }]
+                },
+                "customfield_10358": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": $why
+                    }]
+                  }]
+                },
+                "customfield_10359": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": $what
+                    }]
+                  }]
+                },
+                "customfield_10361": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": $how
+                    }]
+                  }]
+                },
+                "customfield_10362": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": $impact
+                    }]
+                  }]
+                }
               }
             }')
 
